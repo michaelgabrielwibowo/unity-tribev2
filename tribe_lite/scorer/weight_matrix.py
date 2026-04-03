@@ -54,7 +54,10 @@ def init_heuristic_weights(config: TribeLiteConfig | None = None) -> np.ndarray:
     
     # Feature dimension offsets
     of_start = 0
-    of_end = 8 if config.use_optical_flow else 0
+    # Optical flow feature vector is 10-dim (mean, max, 8-bin histogram),
+    # matching VideoEncoder and TribeLiteConfig.video_features_dim.
+    optical_flow_dim = 10 if config.use_optical_flow else 0
+    of_end = of_start + optical_flow_dim
     clip_start = of_end
     clip_end = of_end + (512 if config.use_clip else 0)
     audio_start = clip_end

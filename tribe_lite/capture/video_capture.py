@@ -53,6 +53,12 @@ class VideoCapture:
         
         # Set FPS
         self._cap.set(cv2.CAP_PROP_FPS, self.config.video_fps)
+
+        # Optionally set resolution if configured
+        if self.config.video_width is not None:
+            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.video_width)
+        if self.config.video_height is not None:
+            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.config.video_height)
         
         self._running = True
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)

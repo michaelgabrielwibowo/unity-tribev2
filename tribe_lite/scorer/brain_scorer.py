@@ -45,6 +45,9 @@ class BrainScorer:
                 f"Weight matrix region count mismatch: expected {NUM_REGIONS}, "
                 f"got {self.W.shape[1]}"
             )
+
+        # Previous smoothed region scores for temporal smoothing
+        self._prev_region_scores: np.ndarray | None = None
     
     def score(self, fused_vec: np.ndarray) -> TribeLiteOutput:
         """Score a fused feature vector and return output.
@@ -62,10 +65,24 @@ class BrainScorer:
         # Project to region space: (1, fused_dim) @ (fused_dim, 26) → (1, 26)
         raw = fused_vec @ self.W
         raw = raw.flatten()  # (26,)
-        
+
         # Normalize to [0, 1] with sigmoid
         region_scores_normalized = sigmoid(raw)
-        
+
+        # Optional temporal smoothing with exponential moving average
+        if self.config.use_score_smoothing:
+            alpha = float(self.config.score_smoothing_alpha)
+            alpha = max(0.0, min(alpha, 1.0))  # clamp to [0, 1]
+            if self._prev_region_scores is None:
+                smoothed = region_scores_normalized
+            else:
+                smoothed = alpha * region_scores_normalized + (1.0 - alpha) * self._prev_region_scores
+            self._prev_region_scores = smoothed
+            region_scores_normalized = smoothed
+        else:
+            # Reset if smoothing is disabled to keep behavior stateless
+            self._prev_region_scores = None
+
         # Compute global score as mean of all regions
         global_score = float(np.mean(region_scores_normalized))
         

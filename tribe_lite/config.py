@@ -14,6 +14,10 @@ class TribeLiteConfig:
     window_sec: float = 0.75        # Time window per inference cycle
     video_fps: int = 15             # Webcam capture rate
     audio_sample_rate: int = 16000  # Audio sampling rate
+
+    # Video resolution (set to None to use camera default)
+    video_width: int | None = None   # e.g., 640
+    video_height: int | None = None  # e.g., 480
     
     # Model choices
     clip_model: str = "ViT-B-32"    # OpenCLIP model name
@@ -33,6 +37,10 @@ class TribeLiteConfig:
     use_clip: bool = True
     use_whisper: bool = True
     use_semantic_audio: bool = True
+
+    # Optional temporal smoothing for brain scores
+    use_score_smoothing: bool = False
+    score_smoothing_alpha: float = 0.3  # EMA alpha in [0, 1]
     
     @property
     def weight_path(self) -> Path:

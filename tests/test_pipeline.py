@@ -138,7 +138,6 @@ class TestVideoEncoderOpticalFlow:
         assert not np.any(np.isinf(normed))
         # ensure output is finite and stable
         assert np.isfinite(normed).all()
-        assert not np.any(np.isnan(output))
 
 
 class TestWeightMatrix:

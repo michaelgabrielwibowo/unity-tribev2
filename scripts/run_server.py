@@ -37,6 +37,8 @@ class TribeLiteServer:
         self.pipeline: TribeLitePipeline | None = None
         self.clients: Set[WebSocketServerProtocol] = set()
         self.running = True
+        # Event loop used for scheduling async tasks from background threads
+        self.loop: asyncio.AbstractEventLoop | None = None
     
     async def handler(self, websocket: WebSocketServerProtocol, path: str) -> None:
         """Handle new WebSocket connection.
@@ -72,10 +74,17 @@ class TribeLiteServer:
         
         try:
             json_str = output.to_json(indent=None)  # Compact JSON
-            
-            # Send to all clients (async, non-blocking)
-            for client in self.clients:
-                asyncio.create_task(self._send_to_client(client, json_str))
+            loop = self.loop
+            if loop is None:
+                # No event loop available (e.g., during shutdown); skip broadcast
+                return
+
+            # Send to all clients via the main event loop (thread-safe submission)
+            for client in list(self.clients):
+                asyncio.run_coroutine_threadsafe(
+                    self._send_to_client(client, json_str),
+                    loop,
+                )
         
         except Exception as e:
             print(f"[Server] Broadcast error: {e}")
@@ -120,6 +129,8 @@ class TribeLiteServer:
     
     async def serve(self) -> None:
         """Start WebSocket server."""
+        # Capture the running event loop so background threads can submit tasks safely
+        self.loop = asyncio.get_running_loop()
         print("=" * 60)
         print("TRIBE-Lite — Phase 2 WebSocket Server")
         print("=" * 60)
@@ -159,9 +170,11 @@ async def main():
         print("\n\nShutting down...")
         server.running = False
         server.stop_pipeline()
-        # Close all client connections
-        for client in list(server.clients):
-            asyncio.create_task(client.close())
+        # Close all client connections via the main event loop (thread-safe)
+        loop = server.loop
+        if loop is not None:
+            for client in list(server.clients):
+                asyncio.run_coroutine_threadsafe(client.close(), loop)
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
