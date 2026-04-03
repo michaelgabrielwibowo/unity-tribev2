@@ -4,6 +4,10 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
+#if UNITY_NEWTONSOFT_JSON
+using Newtonsoft.Json;
+#endif
+
 #if UNITY_WEBGL && !UNITY_EDITOR
     using WebSocketSharp;
 #else
@@ -129,28 +133,32 @@ public class TribeLiteClient : MonoBehaviour
         }
     }
     
-    private void OnWebSocketOpen()
+    // WebSocketSharp OnOpen event handler. Signature must match (object sender, EventArgs e).
+    private void OnWebSocketOpen(object sender, EventArgs e)
     {
         Debug.Log("[TribeLiteClient] Connected to server");
         _reconnectAttempts = 0;
         OnConnected?.Invoke();
     }
     
-    private void OnWebSocketMessage(string data)
+    // WebSocketSharp OnMessage event handler. Signature must match (object sender, MessageEventArgs e).
+    private void OnWebSocketMessage(object sender, MessageEventArgs e)
     {
         // Queue message for main thread processing
         lock (_messageLock)
         {
-            _messageQueue.Enqueue(data);
+            _messageQueue.Enqueue(e.Data);
         }
     }
     
-    private void OnWebSocketError(string error)
+    // WebSocketSharp OnError event handler. Signature must match (object sender, ErrorEventArgs e).
+    private void OnWebSocketError(object sender, ErrorEventArgs e)
     {
-        Debug.LogError($"[TribeLiteClient] WebSocket error: {error}");
+        Debug.LogError($"[TribeLiteClient] WebSocket error: {e.Message}");
     }
     
-    private void OnWebSocketClose(CloseEventArgs e)
+    // WebSocketSharp OnClose event handler. Signature must match (object sender, CloseEventArgs e).
+    private void OnWebSocketClose(object sender, CloseEventArgs e)
     {
         string reason = e?.Reason ?? "Unknown";
         Debug.LogWarning($"[TribeLiteClient] Disconnected: {reason}");
@@ -163,7 +171,14 @@ public class TribeLiteClient : MonoBehaviour
     {
         try
         {
+            // Prefer Newtonsoft.Json for full dictionary support if available; otherwise fall back to JsonUtility.
+            // Note: Unity's JsonUtility cannot deserialize Dictionary<TKey, TValue>, so region_scores will only
+            // be populated when UNITY_NEWTONSOFT_JSON is defined and Newtonsoft.Json is installed.
+#if UNITY_NEWTONSOFT_JSON
+            LastOutput = JsonConvert.DeserializeObject<TribeLiteOutput>(json);
+#else
             LastOutput = JsonUtility.FromJson<TribeLiteOutput>(json);
+#endif
             OnOutputReceived?.Invoke(LastOutput);
         }
         catch (Exception e)
@@ -208,7 +223,7 @@ public class TribeLiteClient : MonoBehaviour
 
 /// <summary>
 /// Serializable output from TRIBE-Lite.
-/// Matches the Python TribeLiteOutput schema.
+/// Matches the Python TribeLiteOutput schema (timestamp, global_score, region_scores, top_regions, window_sec).
 /// </summary>
 [System.Serializable]
 public class TribeLiteOutput
@@ -220,7 +235,7 @@ public class TribeLiteOutput
     public float global_score;
     
     /// <summary>Scores for each of 26 brain regions (0.0 - 1.0)</summary>
-    public SerializableDictionary region_scores;
+    public Dictionary<string, float> region_scores;
     
     /// <summary>Top 3 most active regions</summary>
     public List<string> top_regions;
@@ -230,36 +245,4 @@ public class TribeLiteOutput
 }
 
 
-/// <summary>
-/// Wrapper for serializing Dictionary in Unity.
-/// JSON layout: {"region_name": 0.75, ...}
-/// </summary>
-[System.Serializable]
-public class SerializableDictionary
-{
-    [SerializeField]
-    private List<RegionScore> items = new List<RegionScore>();
-    
-    private Dictionary<string, float> _dict;
-    
-    [System.Serializable]
-    private class RegionScore
-    {
-        public string region;
-        public float score;
-    }
-    
-    // Note: Unity's JsonUtility doesn't natively support Dictionary.
-    // For full deserialization, use a third-party JSON library like Newtonsoft.Json.
-    // This is a simplified placeholder.
-    
-    public float GetScore(string region)
-    {
-        foreach (var item in items)
-        {
-            if (item.region == region)
-                return item.score;
-        }
-        return 0f;
-    }
-}
+
