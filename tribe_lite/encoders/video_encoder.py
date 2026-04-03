@@ -1,0 +1,169 @@
+"""Video encoder: optical flow + CLIP visual semantics."""
+
+import numpy as np
+import cv2
+from typing import Optional
+
+from tribe_lite.encoders.base_encoder import BaseEncoder
+from tribe_lite.config import TribeLiteConfig
+
+
+class VideoEncoder(BaseEncoder):
+    """Encodes video frames into feature vectors.
+    
+    Two parallel paths:
+    1. Optical flow motion features (8-dim)
+    2. CLIP visual semantics (512-dim)
+    
+    Combined output: (520-dim) feature vector
+    """
+    
+    def __init__(self, config: Optional[TribeLiteConfig] = None):
+        """Initialize video encoder.
+        
+        Args:
+            config: Configuration object. Uses defaults if None.
+        """
+        super().__init__("VideoEncoder")
+        self.config = config or TribeLiteConfig()
+        self._clip_model = None
+    
+    @property
+    def output_dim(self) -> int:
+        """Dimension of output feature vector."""
+        return self.config.video_features_dim
+    
+    def initialize(self) -> None:
+        """Load CLIP model if enabled."""
+        if self.config.use_clip and not self._clip_model:
+            try:
+                import open_clip
+                self._clip_model, _, self._clip_preprocess = open_clip.create_model_and_transforms(
+                    self.config.clip_model, pretrained="openai"
+                )
+                self._clip_model.eval()
+                print(f"[VideoEncoder] Loaded CLIP model: {self.config.clip_model}")
+            except ImportError:
+                print("[VideoEncoder] Warning: open_clip not installed, skipping CLIP")
+                self.config.use_clip = False
+        
+        self._initialized = True
+    
+    def _compute_optical_flow(self, frames: list[np.ndarray]) -> np.ndarray:
+        """Compute optical flow features from frame sequence.
+        
+        Args:
+            frames: List of BGR frames (uint8)
+            
+        Returns:
+            8-dimensional motion feature vector
+        """
+        if len(frames) < 2:
+            return np.zeros(8, dtype=np.float32)
+        
+        # Convert to grayscale
+        gray_frames = [cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames]
+        
+        flow_magnitudes = []
+        flow_angles = []
+        
+        # Compute flow between consecutive frames
+        for i in range(len(gray_frames) - 1):
+            prev = gray_frames[i]
+            curr = gray_frames[i + 1]
+            
+            # Dense optical flow
+            flow = cv2.calcOpticalFlowFarneback(
+                prev, curr, None,
+                pyr_scale=0.5, levels=3, winsize=15,
+                iterations=3, poly_n=5, poly_sigma=1.2,
+                flags=0
+            )
+            
+            # Magnitude and angle
+            magnitude, angle = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+            flow_magnitudes.append(magnitude)
+            flow_angles.append(angle)
+        
+        if not flow_magnitudes:
+            return np.zeros(8, dtype=np.float32)
+        
+        # Aggregate statistics
+        all_mags = np.concatenate([m.flatten() for m in flow_magnitudes])
+        all_angles = np.concatenate([a.flatten() for a in flow_angles])
+        
+        # Mean and max magnitude
+        mean_mag = float(np.mean(all_mags))
+        max_mag = float(np.max(all_mags))
+        
+        # Direction histogram (8 bins)
+        hist, _ = np.histogram(all_angles, bins=8, range=(0, 2 * np.pi), density=True)
+        
+        # Combine into 8-dim vector: [mean, max, hist[0..6]]
+        features = np.array([mean_mag, max_mag] + hist[:6].tolist(), dtype=np.float32)
+        
+        return features
+    
+    def _encode_clip(self, frame: np.ndarray) -> np.ndarray:
+        """Encode single frame with CLIP.
+        
+        Args:
+            frame: BGR frame (uint8)
+            
+        Returns:
+            512-dim CLIP embedding
+        """
+        if not self.config.use_clip or self._clip_model is None:
+            return np.zeros(512, dtype=np.float32)
+        
+        try:
+            import torch
+            from PIL import Image
+            
+            # Convert BGR to RGB
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(frame_rgb)
+            
+            # Preprocess and encode
+            input_tensor = self._clip_preprocess(pil_image).unsqueeze(0)
+            with torch.no_grad():
+                embedding = self._clip_model.encode_image(input_tensor)
+            
+            # Normalize and convert to numpy
+            embedding = embedding / embedding.norm(dim=-1, keepdim=True)
+            return embedding.squeeze().cpu().numpy().astype(np.float32)
+            
+        except Exception as e:
+            print(f"[VideoEncoder] CLIP encoding error: {e}")
+            return np.zeros(512, dtype=np.float32)
+    
+    def encode(self, frames: list[np.ndarray]) -> np.ndarray:
+        """Encode a sequence of video frames.
+        
+        Args:
+            frames: List of BGR frames from the time window
+            
+        Returns:
+            Feature vector of shape (video_features_dim,)
+        """
+        if not frames:
+            return np.zeros(self.output_dim, dtype=np.float32)
+        
+        features = []
+        
+        # Path 1: Optical flow motion features
+        if self.config.use_optical_flow:
+            flow_features = self._compute_optical_flow(frames)
+            features.append(flow_features)
+        
+        # Path 2: CLIP semantic features (center frame)
+        if self.config.use_clip:
+            center_idx = len(frames) // 2
+            clip_features = self._encode_clip(frames[center_idx])
+            features.append(clip_features)
+        
+        # Concatenate all features
+        if features:
+            return np.concatenate(features).astype(np.float32)
+        else:
+            return np.zeros(self.output_dim, dtype=np.float32)
