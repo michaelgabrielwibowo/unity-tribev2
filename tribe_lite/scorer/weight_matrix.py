@@ -7,22 +7,40 @@ from tribe_lite.scorer.region_map import NUM_REGIONS
 from tribe_lite.config import TribeLiteConfig
 
 
-def init_anatomical_weights(config: TribeLiteConfig | None = None) -> np.ndarray:
-    """Initialize anatomical weight matrix with heuristic values.
+def init_heuristic_weights(config: TribeLiteConfig | None = None) -> np.ndarray:
+    """Initialize heuristic weight matrix with game-state proxy values.
     
-    Creates a (904, 26) matrix where each column represents a brain region's
-    sensitivity profile across the 904 input features.
+    ⚠️  IMPORTANT: These weights are NOT neuroscience-calibrated.
+    
+    This creates a (fused_dim, 26) matrix where each column represents a brain 
+    region's sensitivity profile. The weights are initialized using heuristic 
+    rules that produce plausible-looking brain activation patterns, but they do 
+    NOT reflect actual neurophysiology.
+    
+    The "brain scores" produced using these weights are useful for:
+    - Game state signals (detecting user engagement, attention shifts)
+    - Interactive entertainment (changing game dynamics based on activation)
+    - Educational demonstrations of multimodal AI
+    
+    The "brain scores" should NOT be used for:
+    - Neuroscience research or analysis
+    - Medical diagnosis or monitoring
+    - Any safety-critical application
+    
+    To use scientifically-calibrated weights, collect fMRI/EEG data paired with 
+    video+audio inputs and fit W via least-squares regression (Path C in the 
+    design doc).
     
     Heuristic initialization strategy:
     - Audio encoder dims (384) get higher weights on auditory/language regions
     - CLIP semantic dims (512) get higher weights on visual regions
-    - Optical flow dims (8) get higher weights on motor/attention regions
+    - Optical flow dims (10) get higher weights on motor/attention regions
     
     Args:
         config: Configuration object. Uses defaults if None.
         
     Returns:
-        Weight matrix W of shape (fused_dim, NUM_REGIONS)
+        Heuristic weight matrix W of shape (fused_dim, NUM_REGIONS)
     """
     if config is None:
         config = TribeLiteConfig()
@@ -97,15 +115,18 @@ def load_weights(path: str | Path) -> np.ndarray:
 
 def create_default_weights(output_path: str | Path = "weights/default_weights.npz", 
                            config: TribeLiteConfig | None = None) -> np.ndarray:
-    """Create and save default weight matrix.
+    """Create and save default heuristic weight matrix.
+    
+    ⚠️  These are NOT scientifically-calibrated weights. See init_heuristic_weights()
+    for details on their limitations and appropriate use cases.
     
     Args:
         output_path: Where to save the weights
         config: Configuration object
         
     Returns:
-        The created weight matrix
+        The created heuristic weight matrix
     """
-    W = init_anatomical_weights(config)
+    W = init_heuristic_weights(config)
     save_weights(W, output_path)
     return W

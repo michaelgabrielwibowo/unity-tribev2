@@ -9,7 +9,7 @@ from tribe_lite.scorer.region_map import (
     list_regions,
 )
 from tribe_lite.scorer.weight_matrix import (
-    init_anatomical_weights,
+    init_heuristic_weights,
     save_weights,
     load_weights,
     create_default_weights,
@@ -23,7 +23,7 @@ __all__ = [
     "get_region_name",
     "get_region_index",
     "list_regions",
-    "init_anatomical_weights",
+    "init_heuristic_weights",
     "save_weights",
     "load_weights",
     "create_default_weights",

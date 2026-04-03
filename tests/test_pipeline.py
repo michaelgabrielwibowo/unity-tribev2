@@ -9,7 +9,7 @@ from tribe_lite.config import TribeLiteConfig
 from tribe_lite.fusion.fusion_layer import FusionLayer
 from tribe_lite.scorer.brain_scorer import BrainScorer
 from tribe_lite.scorer.weight_matrix import (
-    init_anatomical_weights,
+    init_heuristic_weights,
     save_weights,
     load_weights,
     create_default_weights,
@@ -26,7 +26,7 @@ def config():
 def weight_file(tmp_path, config):
     """Fixture: temporary weight file."""
     path = tmp_path / "test_weights.npz"
-    W = init_anatomical_weights(config)
+    W = init_heuristic_weights(config)
     save_weights(W, path)
     return path
 
@@ -123,18 +123,18 @@ class TestWeightMatrix:
     
     def test_weight_matrix_shape(self, config):
         """Test weight matrix has correct shape."""
-        W = init_anatomical_weights(config)
+        W = init_heuristic_weights(config)
         assert W.shape == (config.fused_dim, 26)
     
     def test_weight_matrix_values_reasonable(self, config):
         """Test weight matrix values are in reasonable range."""
-        W = init_anatomical_weights(config)
+        W = init_heuristic_weights(config)
         assert np.all(np.isfinite(W))
         assert np.all(W <= 1.0)  # Should be normalized-ish
     
     def test_weight_matrix_io(self, weight_file):
         """Test saving and loading weight matrices."""
-        W_saved = init_anatomical_weights()
+        W_saved = init_heuristic_weights()
         save_weights(W_saved, weight_file)
         
         W_loaded = load_weights(weight_file)
