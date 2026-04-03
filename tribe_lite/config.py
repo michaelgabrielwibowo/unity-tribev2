@@ -44,7 +44,7 @@ class TribeLiteConfig:
         """Dimension of video feature vector."""
         dim = 0
         if self.use_optical_flow:
-            dim += 8  # Motion features
+            dim += 10  # Motion features: mean, max, 8-bin histogram
         if self.use_clip:
             dim += 512  # CLIP embedding
         return dim

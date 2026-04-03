@@ -12,10 +12,10 @@ class VideoEncoder(BaseEncoder):
     """Encodes video frames into feature vectors.
     
     Two parallel paths:
-    1. Optical flow motion features (8-dim)
+    1. Optical flow motion features (10-dim: mean mag, max mag, 8-bin histogram)
     2. CLIP visual semantics (512-dim)
     
-    Combined output: (520-dim) feature vector
+    Combined output: (522-dim) feature vector when both enabled
     """
     
     def __init__(self, config: Optional[TribeLiteConfig] = None):
@@ -27,6 +27,7 @@ class VideoEncoder(BaseEncoder):
         super().__init__("VideoEncoder")
         self.config = config or TribeLiteConfig()
         self._clip_model = None
+        self._clip_available = False  # Local flag, not config mutation
     
     @property
     def output_dim(self) -> int:
@@ -42,21 +43,27 @@ class VideoEncoder(BaseEncoder):
                     self.config.clip_model, pretrained="openai"
                 )
                 self._clip_model.eval()
+                self._clip_available = True
                 print(f"[VideoEncoder] Loaded CLIP model: {self.config.clip_model}")
             except ImportError:
                 print("[VideoEncoder] Warning: open_clip not installed, skipping CLIP")
-                self.config.use_clip = False
+                self._clip_available = False
         
         self._initialized = True
     
     def _compute_optical_flow(self, frames: list[np.ndarray]) -> np.ndarray:
         """Compute optical flow features from frame sequence.
         
+        Returns a 10-dimensional motion feature vector:
+        - Mean magnitude (1)
+        - Max magnitude (1)  
+        - Direction histogram (8 bins, normalized across 0-2π)
+        
         Args:
             frames: List of BGR frames (uint8)
             
         Returns:
-            8-dimensional motion feature vector
+            10-dimensional motion feature vector
         """
         if len(frames) < 2:
             return np.zeros(8, dtype=np.float32)
@@ -86,7 +93,7 @@ class VideoEncoder(BaseEncoder):
             flow_angles.append(angle)
         
         if not flow_magnitudes:
-            return np.zeros(8, dtype=np.float32)
+            return np.zeros(10, dtype=np.float32)
         
         # Aggregate statistics
         all_mags = np.concatenate([m.flatten() for m in flow_magnitudes])
@@ -96,11 +103,11 @@ class VideoEncoder(BaseEncoder):
         mean_mag = float(np.mean(all_mags))
         max_mag = float(np.max(all_mags))
         
-        # Direction histogram (8 bins)
+        # Direction histogram (8 bins, 0-2π)
         hist, _ = np.histogram(all_angles, bins=8, range=(0, 2 * np.pi), density=True)
         
-        # Combine into 8-dim vector: [mean, max, hist[0..6]]
-        features = np.array([mean_mag, max_mag] + hist[:6].tolist(), dtype=np.float32)
+        # Combine into 10-dim vector: [mean_mag, max_mag, hist[0..7]]
+        features = np.array([mean_mag, max_mag, *hist], dtype=np.float32)
         
         return features
     
@@ -113,7 +120,7 @@ class VideoEncoder(BaseEncoder):
         Returns:
             512-dim CLIP embedding
         """
-        if not self.config.use_clip or self._clip_model is None:
+        if not self.config.use_clip or not self._clip_available or self._clip_model is None:
             return np.zeros(512, dtype=np.float32)
         
         try:

@@ -31,6 +31,8 @@ class AudioEncoder(BaseEncoder):
         self._sem_model = None
         self._transcript_buffer = deque(maxlen=5)  # Keep last 5 transcripts
         self._lock = threading.Lock()
+        self._whisper_available = False  # Local flag, not config mutation
+        self._semantic_audio_available = False  # Local flag, not config mutation
     
     @property
     def output_dim(self) -> int:
@@ -48,20 +50,22 @@ class AudioEncoder(BaseEncoder):
                     device="cpu",
                     compute_type="int8"
                 )
+                self._whisper_available = True
                 print(f"[AudioEncoder] Loaded Whisper model: {self.config.whisper_model}")
             except ImportError:
                 print("[AudioEncoder] Warning: faster_whisper not installed, skipping ASR")
-                self.config.use_whisper = False
+                self._whisper_available = False
         
         # Load MiniLM for semantic embedding
         if self.config.use_semantic_audio and not self._sem_model:
             try:
                 from sentence_transformers import SentenceTransformer
                 self._sem_model = SentenceTransformer(self.config.sem_model)
+                self._semantic_audio_available = True
                 print(f"[AudioEncoder] loaded MiniLM model: {self.config.sem_model}")
             except ImportError:
                 print("[AudioEncoder] Warning: sentence_transformers not installed")
-                self.config.use_semantic_audio = False
+                self._semantic_audio_available = False
         
         self._initialized = True
     
@@ -74,7 +78,7 @@ class AudioEncoder(BaseEncoder):
         Returns:
             Transcribed text string
         """
-        if not self.config.use_whisper or self._whisper_model is None:
+        if not self.config.use_whisper or not self._whisper_available or self._whisper_model is None:
             return ""
         
         try:
@@ -108,7 +112,7 @@ class AudioEncoder(BaseEncoder):
         if not text.strip():
             return np.zeros(self.output_dim, dtype=np.float32)
         
-        if not self.config.use_semantic_audio or self._sem_model is None:
+        if not self.config.use_semantic_audio or not self._semantic_audio_available or self._sem_model is None:
             return np.zeros(self.output_dim, dtype=np.float32)
         
         try:
@@ -128,7 +132,10 @@ class AudioEncoder(BaseEncoder):
         
         Args:
             audio_chunk: Float32 mono audio at configured sample rate
-            async_transcribe: If True, transcribe in background thread
+            async_transcribe: If True, transcribe in background thread.
+                NOTE: When async_transcribe=True, the returned embedding reflects transcripts
+                from previous windows. The current window's transcript will appear in the
+                *next* call's embedding. This is intentional for latency management.
             
         Returns:
             Feature vector of shape (audio_features_dim,)
@@ -137,13 +144,14 @@ class AudioEncoder(BaseEncoder):
             return np.zeros(self.output_dim, dtype=np.float32)
         
         # Transcribe (optionally async)
-        if async_transcribe and self.config.use_whisper:
+        if async_transcribe and self.config.use_whisper and self._whisper_available:
             # Fire-and-forget transcription for next window
             thread = threading.Thread(target=self._transcribe_and_cache, args=(audio_chunk,))
             thread.daemon = True
             thread.start()
-            # Use cached transcripts for now
-            text = " ".join(list(self._transcript_buffer))
+            # Use cached transcripts for now (one-window lag by design)
+            with self._lock:
+                text = " ".join(list(self._transcript_buffer))
         else:
             text = self._transcribe(audio_chunk)
             if text:
