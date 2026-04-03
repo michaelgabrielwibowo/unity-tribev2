@@ -28,6 +28,12 @@ class VideoEncoder(BaseEncoder):
         self.config = config or TribeLiteConfig()
         self._clip_model = None
         self._clip_available = False  # Local flag, not config mutation
+
+        # Running statistics for optical flow standardization (fix 4.2)
+        self._flow_n = 0
+        self._flow_mean = np.zeros(10, dtype=np.float32)
+        self._flow_s = np.zeros(10, dtype=np.float32)
+
     
     @property
     def output_dim(self) -> int:
@@ -56,17 +62,17 @@ class VideoEncoder(BaseEncoder):
         
         Returns a 10-dimensional motion feature vector:
         - Mean magnitude (1)
-        - Max magnitude (1)  
+        - Max magnitude (1)
         - Direction histogram (8 bins, normalized across 0-2π)
-        
+
         Args:
             frames: List of BGR frames (uint8)
-            
+
         Returns:
             10-dimensional motion feature vector
         """
         if len(frames) < 2:
-            return np.zeros(8, dtype=np.float32)
+            return np.zeros(10, dtype=np.float32)
         
         # Convert to grayscale
         gray_frames = [cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) for f in frames]
@@ -109,7 +115,30 @@ class VideoEncoder(BaseEncoder):
         # Combine into 10-dim vector: [mean_mag, max_mag, hist[0..7]]
         features = np.array([mean_mag, max_mag, *hist], dtype=np.float32)
         
-        return features
+        # Update running statistics and return standardized optical flow features
+        self._update_flow_stats(features)
+        return self._normalize_flow(features)
+
+    def _update_flow_stats(self, flow_vec: np.ndarray) -> None:
+        """Update running mean/std stats for flow feature normalization."""
+        assert flow_vec.shape == (10,), "Optical flow vector must be 10-dim"
+
+        self._flow_n += 1
+        delta = flow_vec - self._flow_mean
+        self._flow_mean += delta / self._flow_n
+        delta2 = flow_vec - self._flow_mean
+        self._flow_s += delta * delta2
+
+    def _normalize_flow(self, flow_vec: np.ndarray) -> np.ndarray:
+        """Standardize flow vector using running mean and std deviation."""
+        if self._flow_n < 2:
+            # Not enough history to compute stable standard deviation
+            return flow_vec
+
+        variance = np.maximum(self._flow_s / (self._flow_n - 1), 1e-6)
+        std = np.sqrt(variance)
+        return ((flow_vec - self._flow_mean) / std).astype(np.float32)
+
     
     def _encode_clip(self, frame: np.ndarray) -> np.ndarray:
         """Encode single frame with CLIP.

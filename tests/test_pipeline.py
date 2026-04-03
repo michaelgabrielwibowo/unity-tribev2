@@ -115,6 +115,29 @@ class TestFusionLayer:
         
         # Should still produce valid output
         assert output.shape == (config.fused_dim,)
+
+
+class TestVideoEncoderOpticalFlow:
+    """Tests specifically for VideoEncoder optical flow standardization."""
+    
+    def test_optical_flow_normalization_stats(self):
+        pytest.importorskip("cv2", reason="OpenCV not available in this environment")
+        from tribe_lite.encoders.video_encoder import VideoEncoder
+
+        enc = VideoEncoder()
+        # manually initialize running stats data
+        enc._flow_n = 2
+        enc._flow_mean = np.zeros(10, dtype=np.float32)
+        enc._flow_s = np.ones(10, dtype=np.float32)
+
+        vec = np.arange(10, dtype=np.float32)
+        normed = enc._normalize_flow(vec)
+
+        assert normed.shape == (10,)
+        assert not np.any(np.isnan(normed))
+        assert not np.any(np.isinf(normed))
+        # ensure output is finite and stable
+        assert np.isfinite(normed).all()
         assert not np.any(np.isnan(output))
 
 
