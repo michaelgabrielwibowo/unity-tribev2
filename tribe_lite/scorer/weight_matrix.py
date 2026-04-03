@@ -1,7 +1,16 @@
-"""Anatomical weight matrix definition and persistence."""
+"""Anatomical weight matrix definition and persistence.
+
+This module provides utilities for initializing, saving, and loading the
+default heuristic weight matrix. It also includes helpers that resolve the
+bundled default weights path so the package works whether run from source
+or after being installed via pip.
+"""
+
+import importlib.resources as resources
+import shutil
+from pathlib import Path
 
 import numpy as np
-from pathlib import Path
 
 from tribe_lite.scorer.region_map import NUM_REGIONS
 from tribe_lite.config import TribeLiteConfig
@@ -116,11 +125,44 @@ def load_weights(path: str | Path) -> np.ndarray:
         FileNotFoundError: If weight file doesn't exist
     """
     path = Path(path)
+
     if not path.exists():
         raise FileNotFoundError(f"Weight matrix not found at {path}")
-    
+
     data = np.load(path)
     return data["weights"].astype(np.float32)
+
+
+def get_default_weights_path() -> Path:
+    """Resolve the bundled default weights path.
+
+    This attempts several strategies to locate the shipped default
+    weights so the package works both from source and when installed.
+    """
+    # 1) A `weights` resource directory inside the `tribe_lite` package
+    try:
+        with resources.path("tribe_lite", "weights") as p:
+            candidate = p / "default_weights.npz"
+            if candidate.exists():
+                return candidate
+    except Exception:
+        pass
+
+    # 2) A direct file resource (older tooling might place the file at package root)
+    try:
+        with resources.path("tribe_lite", "default_weights.npz") as pfile:
+            if pfile.exists():
+                return pfile
+    except Exception:
+        pass
+
+    # 3) Fallback to package-relative `weights/` (when running from source)
+    repo_weights = Path(__file__).resolve().parents[1] / "weights" / "default_weights.npz"
+    if repo_weights.exists():
+        return repo_weights
+
+    # 4) Finally, fallback to current working directory `weights/`
+    return Path.cwd() / "weights" / "default_weights.npz"
 
 
 def create_default_weights(output_path: str | Path = "weights/default_weights.npz", 
@@ -137,6 +179,23 @@ def create_default_weights(output_path: str | Path = "weights/default_weights.np
     Returns:
         The created heuristic weight matrix
     """
+    output_path = Path(output_path)
+
+    # If the file already exists where requested, just load it
+    if output_path.exists():
+        return load_weights(output_path)
+
+    # If there's a bundled default, copy it into place rather than regenerating
+    pkg_default = get_default_weights_path()
+    if pkg_default.exists():
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.copy(pkg_default, output_path)
+            return load_weights(output_path)
+        except Exception:
+            # Fall through to generating a fresh file if copy fails
+            pass
+
     W = init_heuristic_weights(config)
     save_weights(W, output_path)
     return W

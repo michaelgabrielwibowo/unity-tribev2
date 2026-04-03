@@ -160,8 +160,8 @@ class TribeLiteServer:
                 await asyncio.sleep(1)
 
 
-async def main():
-    """Main entry point."""
+async def _async_main():
+    """Asynchronous main entry point."""
     config = TribeLiteConfig()
     server = TribeLiteServer(config)
     
@@ -189,5 +189,11 @@ async def main():
     print("Goodbye!")
 
 
+def main():
+    """Synchronous console entry point used by package scripts."""
+    import asyncio as _asyncio
+    _asyncio.run(_async_main())
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

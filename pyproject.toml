@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tribe-lite"
+version = "0.1.0"
+description = "Real-time multimodal brain activity proxy for Unity via WebSocket"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "opencv-python-headless",
+    "sounddevice",
+    "websockets",
+]
+
+[project.optional-dependencies]
+full = [
+    "open-clip-torch",
+    "faster-whisper",
+    "sentence-transformers",
+]
+
+[project.scripts]
+tribe-server = "scripts.run_server:main"
+tribe-prototype = "scripts.run_prototype:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tribe_lite"]
+artifacts = ["weights/*.npz"]
