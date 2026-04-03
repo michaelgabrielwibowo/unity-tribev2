@@ -150,7 +150,7 @@ class VideoEncoder(BaseEncoder):
             512-dim CLIP embedding
         """
         if not self.config.use_clip or not self._clip_available or self._clip_model is None:
-            return np.zeros(512, dtype=np.float32)
+            return np.zeros(self.config.clip_features_dim, dtype=np.float32)
         
         try:
             import torch
@@ -171,7 +171,7 @@ class VideoEncoder(BaseEncoder):
             
         except Exception as e:
             print(f"[VideoEncoder] CLIP encoding error: {e}")
-            return np.zeros(512, dtype=np.float32)
+            return np.zeros(self.config.clip_features_dim, dtype=np.float32)
     
     def encode(self, frames: list[np.ndarray]) -> np.ndarray:
         """Encode a sequence of video frames.

@@ -54,14 +54,21 @@ def init_heuristic_weights(config: TribeLiteConfig | None = None) -> np.ndarray:
     
     # Feature dimension offsets
     of_start = 0
-    # Optical flow feature vector is 10-dim (mean, max, 8-bin histogram),
-    # matching VideoEncoder and TribeLiteConfig.video_features_dim.
-    optical_flow_dim = 10 if config.use_optical_flow else 0
+    # Derive CLIP and optical-flow block sizes from config to avoid hard-coded values
+    clip_dim = config.clip_features_dim if config.use_clip else 0
+    # video_features_dim is composed of optical_flow + clip (when enabled)
+    optical_flow_dim = (config.video_features_dim - clip_dim) if config.use_optical_flow else 0
     of_end = of_start + optical_flow_dim
     clip_start = of_end
-    clip_end = of_end + (512 if config.use_clip else 0)
+    clip_end = of_end + clip_dim
     audio_start = clip_end
     audio_end = audio_start + audio_dim
+
+    # Sanity check: ensure the blocks sum exactly to fused_dim
+    assert audio_end == fused_dim, (
+        f"Weight init dimension mismatch: blocks sum to {audio_end} but fused_dim={fused_dim}. "
+        "Check that config.video_features_dim, clip_features_dim, and audio_features_dim are consistent."
+    )
     
     # Boost optical flow → motor/attention regions (1, 15, 18, 19)
     if config.use_optical_flow:

@@ -33,6 +33,8 @@ class AudioEncoder(BaseEncoder):
         self._lock = threading.Lock()
         self._whisper_available = False  # Local flag, not config mutation
         self._semantic_audio_available = False  # Local flag, not config mutation
+        # Guard: only one background transcription at a time to prevent thread buildup
+        self._is_transcribing = threading.Event()
     
     @property
     def output_dim(self) -> int:
@@ -145,10 +147,12 @@ class AudioEncoder(BaseEncoder):
         
         # Transcribe (optionally async)
         if async_transcribe and self.config.use_whisper and self._whisper_available:
-            # Fire-and-forget transcription for next window
-            thread = threading.Thread(target=self._transcribe_and_cache, args=(audio_chunk,))
-            thread.daemon = True
-            thread.start()
+            # Only spawn a new thread if no transcription is already in flight
+            if not self._is_transcribing.is_set():
+                self._is_transcribing.set()
+                thread = threading.Thread(target=self._transcribe_and_cache, args=(audio_chunk,))
+                thread.daemon = True
+                thread.start()
             # Use cached transcripts for now (one-window lag by design)
             with self._lock:
                 text = " ".join(list(self._transcript_buffer))
@@ -163,10 +167,14 @@ class AudioEncoder(BaseEncoder):
     
     def _transcribe_and_cache(self, audio_chunk: np.ndarray) -> None:
         """Background transcription worker."""
-        text = self._transcribe(audio_chunk)
-        if text:
-            with self._lock:
-                self._transcript_buffer.append(text)
+        try:
+            text = self._transcribe(audio_chunk)
+            if text:
+                with self._lock:
+                    self._transcript_buffer.append(text)
+        finally:
+            # Always clear the flag so the next window can spawn a thread
+            self._is_transcribing.clear()
     
     def get_cached_transcript(self) -> str:
         """Get concatenated cached transcripts."""

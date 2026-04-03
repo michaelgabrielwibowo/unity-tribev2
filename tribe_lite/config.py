@@ -21,6 +21,8 @@ class TribeLiteConfig:
     
     # Model choices
     clip_model: str = "ViT-B-32"    # OpenCLIP model name
+    # Dimension of the CLIP embedding; change here if swapping CLIP variants
+    clip_features_dim: int = 512
     whisper_model: str = "tiny.en"  # faster-whisper model size
     sem_model: str = "all-MiniLM-L6-v2"  # Sentence transformer model
     
@@ -54,7 +56,7 @@ class TribeLiteConfig:
         if self.use_optical_flow:
             dim += 10  # Motion features: mean, max, 8-bin histogram
         if self.use_clip:
-            dim += 512  # CLIP embedding
+            dim += self.clip_features_dim  # CLIP embedding (configurable)
         return dim
     
     @property

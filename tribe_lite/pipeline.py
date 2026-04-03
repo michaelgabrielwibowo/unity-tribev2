@@ -59,6 +59,7 @@ class TribeLitePipeline:
         self._thread: Optional[threading.Thread] = None
         self._iteration = 0
         self._start_time = 0.0
+        self._overrun_count = 0
     
     def _initialize_models(self) -> None:
         """Load all ML models (called once at startup)."""
@@ -127,6 +128,17 @@ class TribeLitePipeline:
             
             if sleep_time > 0:
                 time.sleep(sleep_time)
+            else:
+                # Inference overran the configured window; track and notify periodically
+                self._overrun_count += 1
+                overrun_ms = (elapsed - self.config.window_sec) * 1000
+                # Avoid spamming logs; report once every 10 overruns
+                if self._overrun_count % 10 == 1:
+                    print(
+                        f"[Pipeline] WARNING: inference overran window by {overrun_ms:.0f}ms "
+                        f"(total overruns: {self._overrun_count}). "
+                        f"Consider increasing config.window_sec."
+                    )
         
         print("[Pipeline] Inference loop stopped")
     
@@ -189,6 +201,11 @@ class TribeLitePipeline:
     def iterations(self) -> int:
         """Number of inference cycles completed."""
         return self._iteration
+
+    @property
+    def overrun_count(self) -> int:
+        """Number of inference cycles that exceeded window_sec."""
+        return self._overrun_count
     
     def __enter__(self) -> "TribeLitePipeline":
         """Context manager entry."""
