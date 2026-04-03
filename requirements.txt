@@ -17,5 +17,5 @@ websockets>=12.0
 pillow>=10.0.0  # Image processing for CLIP
 
 # Development (optional)
-# pytest>=7.4.0
+pytest>=7.4.0
 # scipy>=1.11.0  # For weight calibration
